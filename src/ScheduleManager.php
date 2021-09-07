@@ -9,39 +9,79 @@
  * This is purpose-built crap.
  */
 class ScheduleManager {
+	/** @var HeatingManager */
+	private $heatingManager;
+
+	/** @var DataSource */
+	private $scheduleSource;
+
+	/** @var DataSource */
+	private $temperatureSource;
+
+	/** @var string $threshold */
+	private $threshold;
+
+	/**
+	 * @param HeatingManager $heatingManager
+	 * @param DataSource $scheduleSource
+	 * @param DataSource $temperatureSource
+	 * @param string $threshold
+	 */
+	public function __construct(
+		HeatingManager $heatingManager,
+		DataSource     $scheduleSource,
+		DataSource     $temperatureSource,
+		string         $threshold
+	) {
+		$this->heatingManager = $heatingManager;
+		$this->scheduleSource = $scheduleSource;
+		$this->temperatureSource = $temperatureSource;
+
+		// TODO: $threshold should not be a string. But HeatingManager::manageHeating wants one.
+		$this->threshold = $threshold;
+	}
+
 	/**
 	 * This method is the entry point into the code. You can assume that it is
 	 * called at regular interval with the appropriate parameters.
 	 */
-	public static function manage( HeatingManagerImpl $hM, string $threshold ): void {
-		$t = self::stringFromURL( "http://probe.home:9999/temp", 4 );
+	public static function manage( HeatingManager $hM, string $threshold ): void {
+		$manager = new ScheduleManager(
+			$hM,
+			new HttpDataSource( 'http://timer.home:9990' ),
+			new HttpDataSource( 'http://probe.home:9999' ),
+			$threshold
+		);
 
-		if ( gettimeofday( true ) > self::startHour() && gettimeofday( true ) < self::endHour() ) {
-			$hM->manageHeating( $t, $threshold, true );
-		}
-		if ( gettimeofday( true ) < self::startHour() || gettimeofday( true ) > self::endHour() ) {
-			$hM->manageHeating( $t, $threshold, false );
-		}
+		$manager->manageHeating();
 	}
 
-	private static function endHour(): float {
-		floatval( self::stringFromURL( "http://timer.home:9990/end", 5 ) );
+	public function manageHeating() {
+		$timeofday = gettimeofday( true );
+		$startHour = self::getStartHour();
+		$endHour = self::getEndHour();
+
+		$t = $this->getTemperature();
+
+		$active = ( $timeofday > $startHour && $timeofday < $endHour );
+
+		// XXX: During "inactive" hours, we send $active = false.
+		//      But that does not turn off the heat, it just disables HeatingManager.
+		//      If the heat was on at the end of the "active" period, it will stay on
+		//      during the "inactive" period. That's probably a bug.
+		$this->heatingManager->manageHeating( $t, $this->threshold, $active );
 	}
 
-	private static function stringFromURL( string $urlString, int $s ) {
-		$c = curl_init();
-
-		curl_setopt( $c, CURLOPT_URL, $urlString );
-		curl_setopt( $c, CURLOPT_RETURNTRANSFER, true );
-
-		$o = curl_exec( $c );
-
-		curl_close( $c );
-
-		return substr( $o, 0, $s );
+	private function getTemperature(): string {
+		// TODO: should not return a string. But HeatingManager::manageHeating wants one.
+		return $this->temperatureSource->read( 'temp', 4 );
 	}
 
-	static function startHour(): float {
-		floatval( self::stringFromURL( "http://timer.home:9990/start", 5 ) );
+	private function getEndHour(): float {
+		return $this->scheduleSource->read( 'end', 5 );
+	}
+
+	private function getStartHour(): float {
+		return $this->scheduleSource->read( 'start', 5 );
 	}
 }
