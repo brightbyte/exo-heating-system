@@ -1,29 +1,48 @@
 <?php
 
 class HeatingManagerImpl implements HeatingManager {
+	/** @var string */
+	private $address;
+
+	/** @var int */
 	private $port;
 
-	public function __construct() {
-		$this->address = 'heater.home'; // TODO: require parameter
-		$this->port = 9999; // TODO: require parameter
+	/** @var DataSource */
+	private $temperatureSource;
+
+	/**
+	 * @return HeatingManagerImpl
+	 */
+	public static function newDefaultManager() {
+		return new HeatingManagerImpl(
+			'heater.home',
+			9999,
+			new HttpDataSource( 'http://probe.home:9999' )
+		);
 	}
 
-	function manageHeating( string $t, string $threshold, bool $active ): void {
-		// TODO: $threshold and $active should be properties, not parameters
-		// TODO: $t and $threshold should not be strings
-		$dt = floatval( $t );
-		$dThreshold = floatval( $threshold );
-		try {
-			if ( !$active ) {
-				// do nothing
-			} elseif ( $dt < $dThreshold ) {
-				$this->sendCommand( 'on' );
-			} elseif ( $dt > $dThreshold ) {
-				$this->sendCommand( 'off' );
-			}
-		} catch ( Exception $e ) {
-			// TODO: don't catch here!
-			echo 'Caught exception: ', $e->getMessage(), "\n";
+	/**
+	 * @param string $address
+	 * @param int $port
+	 * @param DataSource $temperatureSource
+	 */
+	public function __construct(
+		string     $address,
+		int        $port,
+		DataSource $temperatureSource
+	) {
+		$this->address = $address;
+		$this->port = $port;
+		$this->temperatureSource = $temperatureSource;
+	}
+
+	function manageHeating( float $minTemp, float $maxTemp ): void {
+		$dt = floatval( $this->temperatureSource->read( 'temp', 5 ) );
+
+		if ( $dt < $minTemp ) {
+			$this->sendCommand( 'on' );
+		} elseif ( $maxTemp ) {
+			$this->sendCommand( 'off' );
 		}
 	}
 
@@ -32,11 +51,11 @@ class HeatingManagerImpl implements HeatingManager {
 	 */
 	private function sendCommand( $command ) {
 		if ( !( $socket = socket_create( AF_INET, SOCK_STREAM, 0 ) ) ) {
-			die( 'could not create socket' ); // TODO: throw instead!
+			throw new Exception( 'could not create socket' );
 		}
 		$this->address = 'heater.home';
 		if ( !socket_connect( $socket, $this->address, $this->port ) ) {
-			die( 'could not connect!' ); // TODO: throw instead!
+			throw new Exception( 'could not connect!' );
 		}
 
 		socket_send( $socket, $command, strlen( $command ), 0 );

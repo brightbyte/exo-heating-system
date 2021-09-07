@@ -15,30 +15,29 @@ class ScheduleManager {
 	/** @var DataSource */
 	private $scheduleSource;
 
-	/** @var DataSource */
-	private $temperatureSource;
-
-	/** @var string $threshold */
+	/** @var float $threshold */
 	private $threshold;
+
+	/** @var float $tolerance */
+	private $tolerance;
 
 	/**
 	 * @param HeatingManager $heatingManager
 	 * @param DataSource $scheduleSource
-	 * @param DataSource $temperatureSource
-	 * @param string $threshold
+	 * @param float $threshold
+	 * @param float $tolerance
 	 */
 	public function __construct(
 		HeatingManager $heatingManager,
 		DataSource     $scheduleSource,
-		DataSource     $temperatureSource,
-		string         $threshold
+		float          $threshold,
+		float          $tolerance
 	) {
 		$this->heatingManager = $heatingManager;
 		$this->scheduleSource = $scheduleSource;
-		$this->temperatureSource = $temperatureSource;
 
-		// TODO: $threshold should not be a string. But HeatingManager::manageHeating wants one.
 		$this->threshold = $threshold;
+		$this->tolerance = $tolerance;
 	}
 
 	/**
@@ -49,11 +48,15 @@ class ScheduleManager {
 		$manager = new ScheduleManager(
 			$hM,
 			new HttpDataSource( 'http://timer.home:9990' ),
-			new HttpDataSource( 'http://probe.home:9999' ),
-			$threshold
+			$threshold,
+			1.0
 		);
 
-		$manager->manageHeating();
+		try {
+			$manager->manageHeating();
+		} catch ( Exception $e ) {
+			echo 'Caught exception: ', $e->getMessage(), "\n";
+		}
 	}
 
 	public function manageHeating() {
@@ -61,20 +64,17 @@ class ScheduleManager {
 		$startHour = self::getStartHour();
 		$endHour = self::getEndHour();
 
-		$t = $this->getTemperature();
-
 		$active = ( $timeofday > $startHour && $timeofday < $endHour );
 
-		// XXX: During "inactive" hours, we send $active = false.
-		//      But that does not turn off the heat, it just disables HeatingManager.
-		//      If the heat was on at the end of the "active" period, it will stay on
-		//      during the "inactive" period. That's probably a bug.
-		$this->heatingManager->manageHeating( $t, $this->threshold, $active );
-	}
+		// In "inactive" hours, turn on the heating if the temperature falls below 5°C
+		$threshold = $active ? $this->threshold : 5;
 
-	private function getTemperature(): string {
-		// TODO: should not return a string. But HeatingManager::manageHeating wants one.
-		return $this->temperatureSource->read( 'temp', 4 );
+		// NOTE: Since the temperature and the threshold are both floats,
+		//       the temperature will never be "exactly right", so the
+		//       heating would constantly turn on and off. We use a
+		//       tolerance setting to define a range of acceptable temperatures.
+		$offset = $this->tolerance/2;
+		$this->heatingManager->manageHeating( $threshold - $offset, $threshold + $offset );
 	}
 
 	private function getEndHour(): float {

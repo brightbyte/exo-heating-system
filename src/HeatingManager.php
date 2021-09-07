@@ -1,5 +1,5 @@
 <?php
 
 interface HeatingManager {
-	function manageHeating( string $t, string $threshold, boolean $active ): void;
+	function manageHeating( float $minTemp, float $maxTemp ): void;
 }
